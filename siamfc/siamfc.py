@@ -386,10 +386,11 @@ class TrackerSiamFC(Tracker):
         mean_alex, std_alex = calc_mean_std(responses_alex_list)
         mean_resnet, std_resnet = calc_mean_std(responses_resnet_list)
 
-        with open("/opt/project/alex_v5.pickle", "wb") as f:
-            pickle.dump(responses_alex_list, f)
-        with open("/opt/project/resnet_v5.pickle", "wb") as f:
-            pickle.dump(responses_resnet_list, f)
+        a = 0
+        # with open("/opt/project/alex_v5.pickle", "wb") as f:
+        #     pickle.dump(responses_alex_list, f)
+        # with open("/opt/project/resnet_v5.pickle", "wb") as f:
+        #     pickle.dump(responses_resnet_list, f)
 
     def train_step(self, batch, backward=True):
         # set network mode

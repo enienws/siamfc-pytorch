@@ -12,8 +12,8 @@ if __name__ == '__main__':
     # module_path = '../data/SiamFCWeighted_Norm_v2_alpha_1_37.pth'
 
     #module_path -> resnet traiend in colorization framework
-    backbone_path = "../data/siamfc_alexnet_weighted_e50.pth"
-    module_path = '../data/state73879.pth'
+    backbone_path = "../data/v2/siamfc_alexnet_weighted_e50.pth"
+    module_path = '../data/v2/state73879.pth'
 
     root_dir = os.path.expanduser('/opt/got10k')
     seqs = GOT10k(root_dir, subset='train', return_meta=True)
@@ -25,5 +25,5 @@ if __name__ == '__main__':
     tracker = TrackerSiamFC(name="SiamColor_Norm_alpha_trainable_freeze_none{}".format(i),
                             backbone_path=backbone_path,
                             module_path=module_path, alpha=None)
-    # tracker.preprocess_over(seqs)
-    tracker.train_over(seqs)
+    tracker.preprocess_over(seqs)
+    # tracker.train_over(seqs)

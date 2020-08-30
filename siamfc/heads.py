@@ -34,15 +34,15 @@ class SiamFC(nn.Module):
         # resp2_norm = resp2 - m2
         # resp2_norm = resp2_norm / s2
 
-        #Weighted average
-        # resp = torch.add(torch.mul(resp1_norm, 1-alpha), torch.mul(resp2_norm, alpha))
-        if type(self.alpha) is torch.nn.Parameter:
-            # resp = resp1 * (torch.ones(1).expand_as(resp1).to('cuda:1')- alpha.expand_as(resp1)) + resp2 * alpha.expand_as(resp2)
-            resp = torch.add(torch.mul(resp1, 1 - self.alpha), torch.mul(resp2, self.alpha))
-        else:
-            resp = torch.add(torch.mul(resp1, 1 - self.alpha), torch.mul(resp2, self.alpha))
-        # return resp1, resp2
-        return resp
+        # #Weighted average
+        # # resp = torch.add(torch.mul(resp1_norm, 1-alpha), torch.mul(resp2_norm, alpha))
+        # if type(self.alpha) is torch.nn.Parameter:
+        #     # resp = resp1 * (torch.ones(1).expand_as(resp1).to('cuda:1')- alpha.expand_as(resp1)) + resp2 * alpha.expand_as(resp2)
+        #     resp = torch.add(torch.mul(resp1, 1 - self.alpha), torch.mul(resp2, self.alpha))
+        # else:
+        #     resp = torch.add(torch.mul(resp1, 1 - self.alpha), torch.mul(resp2, self.alpha))
+        return resp1, resp2
+        # return resp
     
     def _fast_xcorr(self, z, x):
         # fast cross correlation
