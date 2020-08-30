@@ -32,7 +32,7 @@ if __name__ == '__main__':
     for i in range(0,11):
         trackerNum = (10 - i) / 10
         # trackerNum = 0.0
-        tracker1 = TrackerSiamFC(name="BaselineTracker".format(trackerNum),
+        tracker1 = TrackerSiamFC(name="Baseline_ResNet(Color)_alpha_{}".format(trackerNum),
                              backbone_path=backbone_path, module_path=module_path,
                              alpha=trackerNum)
         # tracker2 = TrackerSiamFC(name="SiamColor", backbone_path=net_path, module_path=module_path, alpha=1.0)
