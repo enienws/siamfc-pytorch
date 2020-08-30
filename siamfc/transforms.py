@@ -6,7 +6,8 @@ import numbers
 import torch
 
 from . import ops
-
+from PIL import Image
+from torchvision import transforms
 
 __all__ = ['SiamFCTransforms']
 
@@ -89,6 +90,11 @@ class ToTensor(object):
     def __call__(self, img):
         return torch.from_numpy(img).float().permute((2, 0, 1))
 
+class ToPIL(object):
+
+    def __call__(self, img):
+        return Image.fromarray(img)
+        # return torch.from_numpy(img).float().permute((2, 0, 1))
 
 class SiamFCTransforms(object):
 
@@ -97,17 +103,22 @@ class SiamFCTransforms(object):
         self.instance_sz = instance_sz
         self.context = context
 
-        self.transforms_z = Compose([
+        self.transforms_z = transforms.Compose([
             RandomStretch(),
             CenterCrop(instance_sz - 8),
             RandomCrop(instance_sz - 2 * 8),
             CenterCrop(exemplar_sz),
-            ToTensor()])
-        self.transforms_x = Compose([
+            ToPIL(),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5,), (0.5,))])
+        self.transforms_x = transforms.Compose([
             RandomStretch(),
             CenterCrop(instance_sz - 8),
             RandomCrop(instance_sz - 2 * 8),
-            ToTensor()])
+            ToPIL(),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5,), (0.5,))
+        ])
     
     def __call__(self, z, x, box_z, box_x):
         z = self._crop(z, box_z, self.instance_sz)

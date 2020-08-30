@@ -12,6 +12,6 @@ if __name__ == '__main__':
     img_files = sorted(glob.glob(seq_dir + 'img/*.jpg'))
     anno = np.loadtxt(seq_dir + 'groundtruth_rect.txt')
     
-    net_path = 'pretrained/siamfc_alexnet_e50.pth'
-    tracker = TrackerSiamFC(net_path=net_path)
+    net_path = '..data/siamcolor_resnet_e1.pth'
+    tracker = TrackerSiamFC(backbone_path=net_path)
     tracker.track(img_files, anno[0], visualize=True)

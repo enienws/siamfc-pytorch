@@ -13,51 +13,91 @@ from collections import namedtuple
 from torch.optim.lr_scheduler import ExponentialLR
 from torch.utils.data import DataLoader
 from got10k.trackers import Tracker
-
+import pickle
 from . import ops
-from .backbones import AlexNetV1
+from .backbones import AlexNetV1, AlexNetV1_modified
+from .colorization import Colorization
+from .resnet import ResNet, BasicBlock, _resnet
 from .heads import SiamFC
 from .losses import BalancedLoss
 from .datasets import Pair
 from .transforms import SiamFCTransforms
-
-
+import copy
+import matplotlib.pyplot as plt
+from torchvision import transforms
+from .transforms import ToPIL
 __all__ = ['TrackerSiamFC']
 
 
 class Net(nn.Module):
 
-    def __init__(self, backbone, head):
+    def __init__(self, backbone, head, module=None):
         super(Net, self).__init__()
         self.backbone = backbone
+        self.module = module
         self.head = head
-    
+
+        #Weight freezing logic.
+        #Freeze the weights of module
+        # for child in self.children():
+        #     for param in child.parameters():
+        #         param.requires_grad = False
+
+    def calc_response(self, input):
+        backbone_resp = self.backbone(input)
+        module_resp = self.module(input)
+        return (backbone_resp, module_resp)
+
     def forward(self, z, x):
-        z = self.backbone(z)
-        x = self.backbone(x)
+        z = self.backbone(z), self.module(z)
+        x = self.backbone(x), self.module(x)
         return self.head(z, x)
 
 
 class TrackerSiamFC(Tracker):
 
-    def __init__(self, net_path=None, **kwargs):
-        super(TrackerSiamFC, self).__init__('SiamFC', True)
+    def __init__(self, backbone_path=None, module_path=None, alpha=None, **kwargs):
+        super(TrackerSiamFC, self).__init__(kwargs['name'], True)
         self.cfg = self.parse_args(**kwargs)
+
+        # Transformers from exemplar and search images
+        self.inputTransformer = transforms.Compose([
+            ToPIL(),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5,), (0.5,))
+        ])
 
         # setup GPU device if available
         self.cuda = torch.cuda.is_available()
-        self.device = torch.device('cuda:0' if self.cuda else 'cpu')
+        self.device = torch.device('cuda:1' if self.cuda else 'cpu')
+
 
         # setup model
         self.net = Net(
             backbone=AlexNetV1(),
-            head=SiamFC(self.cfg.out_scale))
+            module=_resnet('resnet18', BasicBlock, [2, 2, 2, 2], False, True),
+            # module=AlexNetV1_modified(),
+            head=SiamFC(self.cfg.out_scale, alpha=alpha))
+
+        for param in self.net.parameters():
+            print(param, type(param.data), param.size())
+
         ops.init_weights(self.net)
         
         # load checkpoint if provided
-        if net_path is not None:
-            self.net.load_state_dict(torch.load(
-                net_path, map_location=lambda storage, loc: storage))
+        # Load models for backbone and model
+        # self.load_model(self.net, backbone_path)
+        # self.load_model(self.net.module, module_path)
+        if backbone_path is not None:
+            self.load_model(self.net.backbone, backbone_path, filter_str="backbone.")
+        # if backbone_path is not None:
+        #     self.net.load_state_dict(torch.load(backbone_path))
+        if module_path is not None:
+            #use filter = module.resnet. when trained in a colorization framework
+            self.load_model(self.net.module, module_path, filter_str = 'module.resnet.')
+            # use filter = module. when trained in tracking framework
+            # self.load_model(self.net.module, module_path, filter_str='module.')
+
         self.net = self.net.to(self.device)
 
         # setup criterion
@@ -76,11 +116,35 @@ class TrackerSiamFC(Tracker):
             1.0 / self.cfg.epoch_num)
         self.lr_scheduler = ExponentialLR(self.optimizer, gamma)
 
+    def load_model(self, net, path, filter_str):
+        # Load network
+        if path is not None:
+            model = torch.load(path)
+            if "model_state_dict" in model:
+                state_dict = torch.load(path)['model_state_dict']
+            else:
+                state_dict = torch.load(path)
+
+            state_dict_v2 = copy.deepcopy(state_dict)
+
+            for key in state_dict:
+                #filter may be backbone or module
+                #if it is module, one tries to load resnet related weights
+                if filter_str in key:
+                    modified_key = key.replace(filter_str, '')
+                    state_dict_v2[modified_key] = state_dict_v2.pop(key)
+                else:
+                    state_dict_v2.pop(key)
+
+            net.load_state_dict(state_dict_v2)
+        return
+
     def parse_args(self, **kwargs):
         # default parameters
         cfg = {
             # basic parameters
-            'out_scale': 0.001,
+            # 'out_scale': 0.001,
+            'out_scale': 1.0,
             'exemplar_sz': 127,
             'instance_sz': 255,
             'context': 0.5,
@@ -94,7 +158,7 @@ class TrackerSiamFC(Tracker):
             'response_up': 16,
             'total_stride': 8,
             # train parameters
-            'epoch_num': 50,
+            'epoch_num': 15,
             'batch_size': 8,
             'num_workers': 32,
             'initial_lr': 1e-2,
@@ -120,6 +184,7 @@ class TrackerSiamFC(Tracker):
             box[0] - 1 + (box[2] - 1) / 2,
             box[3], box[2]], dtype=np.float32)
         self.center, self.target_sz = box[:2], box[2:]
+        self.img_sz = (img.shape[0], img.shape[1])
 
         # create hanning window
         self.upscale_sz = self.cfg.response_up * self.cfg.response_sz
@@ -145,11 +210,13 @@ class TrackerSiamFC(Tracker):
             img, self.center, self.z_sz,
             out_size=self.cfg.exemplar_sz,
             border_value=self.avg_color)
-        
+
+        #Transform and normalize the input image
+        z = self.inputTransformer(z)
+
         # exemplar features
-        z = torch.from_numpy(z).to(
-            self.device).permute(2, 0, 1).unsqueeze(0).float()
-        self.kernel = self.net.backbone(z)
+        z = z.to(self.device).unsqueeze(0).float()
+        self.kernel = self.net.calc_response(z)
     
     @torch.no_grad()
     def update(self, img):
@@ -161,12 +228,15 @@ class TrackerSiamFC(Tracker):
             img, self.center, self.x_sz * f,
             out_size=self.cfg.instance_sz,
             border_value=self.avg_color) for f in self.scale_factors]
-        x = np.stack(x, axis=0)
-        x = torch.from_numpy(x).to(
-            self.device).permute(0, 3, 1, 2).float()
+
+        #Transform and normalize the input image
+        x = [self.inputTransformer(image) for image in x]
+        x = torch.stack(x, dim=0)
+
+        x = x.to(self.device).float()
         
         # responses
-        x = self.net.backbone(x)
+        x = self.net.calc_response(x)
         responses = self.net.head(self.kernel, x)
         responses = responses.squeeze(1).cpu().numpy()
 
@@ -188,6 +258,7 @@ class TrackerSiamFC(Tracker):
         response = (1 - self.cfg.window_influence) * response + \
             self.cfg.window_influence * self.hann_window
         loc = np.unravel_index(response.argmax(), response.shape)
+        # print("loc: ", loc)
 
         # locate target center
         disp_in_response = np.array(loc) - (self.upscale_sz - 1) / 2
@@ -196,13 +267,17 @@ class TrackerSiamFC(Tracker):
         disp_in_image = disp_in_instance * self.x_sz * \
             self.scale_factors[scale_id] / self.cfg.instance_sz
         self.center += disp_in_image
-
+        # print("disp:", disp_in_image)
+        # print("center:", self.center)
         # update target size
         scale =  (1 - self.cfg.scale_lr) * 1.0 + \
             self.cfg.scale_lr * self.scale_factors[scale_id]
         self.target_sz *= scale
         self.z_sz *= scale
         self.x_sz *= scale
+
+        #Correct tracking center
+        self.correctCenter()
 
         # return 1-indexed and left-top based bounding box
         box = np.array([
@@ -211,7 +286,18 @@ class TrackerSiamFC(Tracker):
             self.target_sz[1], self.target_sz[0]])
 
         return box
-    
+
+    def correctCenter(self):
+        if self.center[0] - self.target_sz[0] / 2 < 0:
+            self.center[0] = self.target_sz[0] / 2
+        if self.center[0] + self.target_sz[0] / 2 > self.img_sz[0]:
+            self.center[0] = self.img_sz[0] - self.target_sz[1] / 2
+
+        if self.center[1] - self.target_sz[1] / 2 < 0:
+            self.center[1] = self.target_sz[1] / 2
+        if self.center[1] + self.target_sz[1] / 2 > self.img_sz[1]:
+            self.center[1] = self.img_sz[1] - self.target_sz[1] / 2
+
     def track(self, img_files, box, visualize=False):
         frame_num = len(img_files)
         boxes = np.zeros((frame_num, 4))
@@ -233,6 +319,78 @@ class TrackerSiamFC(Tracker):
 
         return boxes, times
     
+    def preprocess_step(self, batch):
+        # set network mode
+        self.net.train(True)
+
+        # parse batch data
+        z = batch[0].to(self.device, non_blocking=self.cuda)
+        x = batch[1].to(self.device, non_blocking=self.cuda)
+
+        with torch.set_grad_enabled(True):
+            # inference
+            resp_alex, resp_resnet = self.net(z, x)
+        
+        return resp_alex, resp_resnet
+
+    @torch.enable_grad()
+    def preprocess_over(self, seqs, val_seqs=None,
+                   save_dir='pretrained'):
+        # set to train mode
+        self.net.train(True)
+
+        # create save_dir folder
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+
+        # setup dataset
+        transforms = SiamFCTransforms(
+            exemplar_sz=self.cfg.exemplar_sz,
+            instance_sz=self.cfg.instance_sz,
+            context=self.cfg.context)
+
+        dataset = Pair(
+            seqs=seqs,
+            transforms=transforms)
+
+        # setup dataloader
+        dataloader = DataLoader(
+            dataset,
+            batch_size=1,
+            shuffle=True,
+            # num_workers=self.cfg.num_workers,
+            num_workers=1,
+            pin_memory=self.cuda,
+            drop_last=True)
+
+        responses_alex_list = []
+        responses_resnet_list = []
+        # for epoch in range(self.cfg.epoch_num):
+        # loop over dataloader
+        for it, batch in enumerate(dataloader):
+            responses_alex, responses_resnet  = self.preprocess_step(batch)
+            responses_alex = responses_alex.cpu().detach().numpy()
+            responses_resnet = responses_resnet.cpu().detach().numpy()
+            responses_alex_list.append(responses_alex)
+            responses_resnet_list.append(responses_resnet)
+            torch.cuda.empty_cache()
+            print(it)
+
+        def calc_mean_std(features):
+            features = np.stack(np.array(features), axis=0)
+            features = np.reshape(features, (-1, 1, 15, 15))
+            mean = np.mean(features)
+            variance = np.std(features)
+            return mean, variance
+
+        mean_alex, std_alex = calc_mean_std(responses_alex_list)
+        mean_resnet, std_resnet = calc_mean_std(responses_resnet_list)
+
+        with open("/opt/project/alex_v5.pickle", "wb") as f:
+            pickle.dump(responses_alex_list, f)
+        with open("/opt/project/resnet_v5.pickle", "wb") as f:
+            pickle.dump(responses_resnet_list, f)
+
     def train_step(self, batch, backward=True):
         # set network mode
         self.net.train(backward)
@@ -248,13 +406,13 @@ class TrackerSiamFC(Tracker):
             # calculate loss
             labels = self._create_labels(responses.size())
             loss = self.criterion(responses, labels)
-            
+
             if backward:
                 # back propagation
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
-        
+
         return loss.item()
 
     @torch.enable_grad()
@@ -272,6 +430,9 @@ class TrackerSiamFC(Tracker):
             exemplar_sz=self.cfg.exemplar_sz,
             instance_sz=self.cfg.instance_sz,
             context=self.cfg.context)
+
+
+
         dataset = Pair(
             seqs=seqs,
             transforms=transforms)
@@ -281,28 +442,42 @@ class TrackerSiamFC(Tracker):
             dataset,
             batch_size=self.cfg.batch_size,
             shuffle=True,
-            num_workers=self.cfg.num_workers,
+            # num_workers=self.cfg.num_workers,
+            num_workers=1,
             pin_memory=self.cuda,
             drop_last=True)
         
         # loop over epochs
+        losses = []
+
         for epoch in range(self.cfg.epoch_num):
             # update lr at each epoch
             self.lr_scheduler.step(epoch=epoch)
 
             # loop over dataloader
+            running_loss = 0
             for it, batch in enumerate(dataloader):
                 loss = self.train_step(batch, backward=True)
                 print('Epoch: {} [{}/{}] Loss: {:.5f}'.format(
                     epoch + 1, it + 1, len(dataloader), loss))
                 sys.stdout.flush()
+                running_loss += loss
+
+            #Calculate average loss for this batch
+            running_loss /= it
+            losses.append(running_loss)
             
             # save checkpoint
             if not os.path.exists(save_dir):
                 os.makedirs(save_dir)
             net_path = os.path.join(
-                save_dir, 'siamfc_alexnet_e%d.pth' % (epoch + 1))
+                save_dir, self.name + '_{}.pth'.format(epoch + 1))
             torch.save(self.net.state_dict(), net_path)
+
+        #Save a plot
+        plt.clf()
+        plt.plot(np.array(losses), 'r')
+        plt.savefig(os.path.join(save_dir, self.name + ".png"))
     
     def _create_labels(self, size):
         # skip if same sized labels already created
@@ -337,3 +512,5 @@ class TrackerSiamFC(Tracker):
         self.labels = torch.from_numpy(labels).to(self.device).float()
         
         return self.labels
+
+
