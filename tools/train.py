@@ -19,11 +19,12 @@ if __name__ == '__main__':
     seqs = GOT10k(root_dir, subset='train', return_meta=True)
 
     # resp = (1 - alpha) * resp1(siamfc) + alpha * resp2(siamcolor)
-    # for i in (1, 0):
+    for i in (0, 11):
 
-    i = 0.1
-    tracker = TrackerSiamFC(name="SiamColor_Norm_alpha_trainable_freeze_none{}".format(i),
-                            backbone_path=backbone_path,
-                            module_path=module_path, alpha=None)
-    tracker.preprocess_over(seqs)
-    # tracker.train_over(seqs)
+        # i = 0.1
+        i = (10 - i) / 10
+        tracker = TrackerSiamFC(name="Baseline_ResNet(Color)_alpha_{}".format(i),
+                                backbone_path=backbone_path,
+                                module_path=module_path, alpha=i)
+        # tracker.preprocess_over(seqs)
+        tracker.train_over(seqs)

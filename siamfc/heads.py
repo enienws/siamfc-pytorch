@@ -21,26 +21,26 @@ class SiamFC(nn.Module):
     def forward(self, z, x):
         resp1 = self._fast_xcorr(z[0], x[0]) * self.out_scale
         #Normalization
-        m1 = -3142.4243
-        s1 = 3570.4692
-        resp1_norm = resp1 - m1
-        resp1_norm = resp1_norm / s1
+        # m1 = -3142.4243
+        # s1 = 3570.4692
+        # resp1_norm = resp1 - m1
+        # resp1_norm = resp1_norm / s1
 
 
         resp2 = self._fast_xcorr(z[1], x[1]) * self.out_scale
         #Normalization
-        m2 = 411454.38
-        s2 = 34993.023
-        resp2_norm = resp2 - m2
-        resp2_norm = resp2_norm / s2
+        # m2 = 411454.38
+        # s2 = 34993.023
+        # resp2_norm = resp2 - m2
+        # resp2_norm = resp2_norm / s2
 
         # #Weighted average
         # resp = torch.add(torch.mul(resp1_norm, 1-alpha), torch.mul(resp2_norm, alpha))
         if type(self.alpha) is torch.nn.Parameter:
             # resp = resp1 * (torch.ones(1).expand_as(resp1).to('cuda:1')- alpha.expand_as(resp1)) + resp2 * alpha.expand_as(resp2)
-            resp = torch.add(torch.mul(resp1_norm, 1 - self.alpha), torch.mul(resp2_norm, self.alpha))
+            resp = torch.add(torch.mul(resp1, 1 - self.alpha), torch.mul(resp2, self.alpha))
         else:
-            resp = torch.add(torch.mul(resp1_norm, 1 - self.alpha), torch.mul(resp2_norm, self.alpha))
+            resp = torch.add(torch.mul(resp1, 1 - self.alpha), torch.mul(resp2, self.alpha))
         # return resp1, resp2
         return resp
     
