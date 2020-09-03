@@ -19,7 +19,7 @@ if __name__ == '__main__':
     seqs = GOT10k(root_dir, subset='train', return_meta=True)
 
     # resp = (1 - alpha) * resp1(siamfc) + alpha * resp2(siamcolor)
-    for i in (0, 11):
+    for i in range(0, 11):
 
         # i = 0.1
         i = (10 - i) / 10

@@ -79,8 +79,8 @@ class TrackerSiamFC(Tracker):
             # module=AlexNetV1_modified(),
             head=SiamFC(self.cfg.out_scale, alpha=alpha))
 
-        for param in self.net.parameters():
-            print(param, type(param.data), param.size())
+        # for param in self.net.parameters():
+        #     print(param, type(param.data), param.size())
 
         ops.init_weights(self.net)
         
@@ -158,11 +158,11 @@ class TrackerSiamFC(Tracker):
             'response_up': 16,
             'total_stride': 8,
             # train parameters
-            'epoch_num': 25,
+            'epoch_num': 15,
             'batch_size': 8,
             'num_workers': 32,
-            'initial_lr': 1e-2,
-            'ultimate_lr': 1e-5,
+            'initial_lr': 1e-4,
+            'ultimate_lr': 1e-6,
             'weight_decay': 5e-4,
             'momentum': 0.9,
             'r_pos': 16,
@@ -454,18 +454,20 @@ class TrackerSiamFC(Tracker):
         for epoch in range(self.cfg.epoch_num):
             # update lr at each epoch
             self.lr_scheduler.step(epoch=epoch)
-
+            loss_within_epoch = []
             # loop over dataloader
             running_loss = 0
             for it, batch in enumerate(dataloader):
                 loss = self.train_step(batch, backward=True)
                 print('Epoch: {} [{}/{}] Loss: {:.5f}'.format(
                     epoch + 1, it + 1, len(dataloader), loss))
+                loss_within_epoch.append(loss)
                 sys.stdout.flush()
                 running_loss += loss
 
             #Calculate average loss for this batch
-            running_loss /= it
+            running_loss /= (it+1)
+            print("itr for epoch: {}".format(it))
             losses.append(running_loss)
             
             # save checkpoint
@@ -474,6 +476,10 @@ class TrackerSiamFC(Tracker):
             net_path = os.path.join(
                 save_dir, self.name + '_{}.pth'.format(epoch + 1))
             torch.save(self.net.state_dict(), net_path)
+
+            #Save the losses
+            with open(os.path.join(save_dir, self.name + "_{}.pickle".format(epoch + 1)), "wb") as f:
+                pickle.dump(losses, f)
 
         #Save a plot
         plt.clf()
