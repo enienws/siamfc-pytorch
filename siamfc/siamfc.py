@@ -143,8 +143,8 @@ class TrackerSiamFC(Tracker):
         # default parameters
         cfg = {
             # basic parameters
-            # 'out_scale': 0.001,
-            'out_scale': 1.0,
+            'out_scale': 0.001,
+            # 'out_scale': 1.0,
             'exemplar_sz': 127,
             'instance_sz': 255,
             'context': 0.5,
@@ -158,11 +158,11 @@ class TrackerSiamFC(Tracker):
             'response_up': 16,
             'total_stride': 8,
             # train parameters
-            'epoch_num': 15,
+            'epoch_num': 25,
             'batch_size': 8,
             'num_workers': 32,
-            'initial_lr': 1e-4,
-            'ultimate_lr': 1e-6,
+            'initial_lr': 1e-2,
+            'ultimate_lr': 1e-5,
             'weight_decay': 5e-4,
             'momentum': 0.9,
             'r_pos': 16,
